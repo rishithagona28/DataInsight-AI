@@ -1,156 +1,152 @@
 # DataInsight AI
 
-An AI-powered data analyst platform: upload a dataset and it profiles,
-cleans, visualizes, models, and explains it — the routine work a data
-analyst intern would do — with an LLM (Gemini by default, free) used for
-interpretation and explanation, never for the actual calculations.
+**Your AI data analyst.** Upload any CSV and get a client-ready interactive dashboard, forecasts, a forward-looking AI brief, and a chat assistant that answers questions in plain English, with every number calculated from your data, never guessed.
 
-## Status
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.64-FF4B4B?logo=streamlit&logoColor=white)
+![Gemini](https://img.shields.io/badge/LLM-Gemini-8E75B2?logo=googlegemini&logoColor=white)
+![pandas](https://img.shields.io/badge/pandas-150458?logo=pandas&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?logo=scikitlearn&logoColor=white)
+![Plotly](https://img.shields.io/badge/Plotly-3F4F75?logo=plotly&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063?logo=pydantic&logoColor=white)
 
-All core features are built, across a seven-tab workflow:
+![DataInsight AI dashboard](docs/screenshots/dashboard.jpg)
 
-- **Data quality & cleaning** — programmatically detects missing values,
-  duplicates, outliers (IQR), ID-like columns, and inconsistent text
-  (e.g. `"USA"` vs `" usa"`), then proposes a named, explained fix for
-  each — nothing is applied until you check it and click Apply. Every
-  applied step is logged with a timestamp, and "Reset to original data"
-  always gets you back to the untouched upload.
-- **Overview & EDA** — shape, column types, cardinality, missing data,
-  summary stats, duplicate rows, categorical breakdowns, and possible
-  prediction-target columns.
-- **Dashboard** — KPI cards, outlier badges, date/category/search filters
-  scoped to the tab, click-to-drill-down on the top-categories chart, and
-  auto-generated Plotly charts (correlation heatmap, trend, area,
-  scatter, box, histogram, bar, donut) picked from the data's shape.
-- **Predict** — forecasts a numeric metric 1, 3, or 6 months ahead (or a
-  custom horizon), showing the expected % change alongside the trend
-  chart. For "predict a column," a single well-rounded model (Random
-  Forest) trains by default with a plain-language result — check "Compare
-  more models" to reveal the full multi-model comparison (Logistic/Linear
-  Regression, Decision Tree, Random Forest, Gradient Boosting) with the
-  metrics appropriate to the task (accuracy/precision/recall/F1/ROC-AUC/
-  confusion matrix for classification; MAE/MSE/RMSE/R²/adjusted R² for
-  regression), per-model training time, cross-validation, and
-  permutation-importance explainability — no synthetic "overall score."
-- **AI Insights** — sends a compact statistical summary and the
-  programmatically detected data-quality issues (never the raw rows) to
-  the LLM and gets back a plain-language analysis.
-- **Chat with your data** — a chat agent that answers questions by
-  writing and executing real pandas/Plotly code against the loaded
-  dataframe — including building charts on request, and a dedicated
-  forecast tool for "predict/forecast X for the next N months" questions
-  (reuses the same forecasting function as the Predict tab) — so answers
-  (and numbers) are computed, not guessed.
-- **Report** — compiles everything already computed this session
-  (profiling, cleaning log, AI insights, model comparison) into one
-  downloadable, self-contained HTML report with embedded interactive
-  charts. Generating it costs no extra LLM tokens or model training.
+---
 
-## Setup (one-time)
+## Why this project
 
-1. Make sure Python 3.10+ is installed (`python3 --version` in a terminal).
-2. Open this folder in VS Code.
-3. Open a terminal in VS Code (Terminal menu → New Terminal).
-4. Create a virtual environment (skip if you already have one):
-   ```
-   python3 -m venv venv
-   ```
-5. Activate it:
-   - Mac/Linux: `source venv/bin/activate`
-   - Windows: `venv\Scripts\activate`
-6. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-7. Copy `.env.example` to `.env` and set `GEMINI_API_KEY` to your real
-   key — get a **free** one (no credit card) at
-   https://aistudio.google.com/apikey. The app works fine without it, but
-   **AI Insights** and **Chat** stay disabled until a key is set. The key
-   is only ever read server-side via `os.environ`/`.env` — it is never
-   sent to the browser or exposed in any response.
+Most "chat with your CSV" demos let a language model guess at numbers. DataInsight AI is built on one rule:
 
-   The app talks to Gemini through its OpenAI-compatible endpoint (the
-   `openai` package pointed at Google's URL — see `get_llm_client()` in
-   `app.py`), so swapping to another OpenAI-compatible provider (Groq,
-   OpenRouter, a local Ollama server) later only means changing
-   `GEMINI_API_KEY`/`GEMINI_MODEL`/`LLM_BASE_URL` in `.env` — no code
-   changes.
+> **Code calculates. AI explains.**
 
-## Run the app
+Every total, forecast and percentage is computed with pandas, statsmodels and scikit-learn. The LLM is only used to *choose* calculations (as an agent calling tools) and to *explain* results in plain English. The answers you show a client are therefore exact and reproducible, and the AI can't invent figures.
 
+## Features
+
+| | What it does |
+|---|---|
+| 📥 **Loads messy real-world CSVs** | Auto-detects encoding (UTF-8, UTF-16, Excel's Windows-1252), separators (`,` `;` tab `\|`), title rows above the header and malformed rows, and converts `"₹ 1,20,000"`, `"$1,200.50"` or `"12%"` into numbers. It tells you every adjustment it made. |
+| 🧹 **Data quality & cleaning** | Finds missing values, duplicates, outliers and inconsistent text, and proposes explained fixes. Nothing changes until you approve, every step is logged, and it can be undone. |
+| 📊 **Client-ready dashboard** | Detects the date, the money/amount columns and the groupings automatically. KPI cards with sparklines and % change, trend chart, donut share chart, **click-a-bar cross-filtering**, breakdown table, computed *key takeaways*, and CSV export. |
+| 🔮 **AI outlook (future insights)** | 3-month forecast with a likely range, momentum, year-over-year growth, seasonal peaks, rising/declining segments and concentration risk, plus an AI brief with opportunities, risks and 3 recommended actions. |
+| 💬 **Chat with your data** | Ask *"Which region is growing fastest and what should we do?"* and get a direct answer with real numbers, charts on request, and no code. |
+| 🤖 **Predict** | Forecast any metric, or train and compare ML models (Linear/Logistic Regression, Decision Tree, Random Forest, Gradient Boosting) with proper metrics, cross-validation and feature importance. |
+| 📄 **Report** | Exports everything from the session as one self-contained HTML report. |
+| 🧪 **Sample data** | One click on *Try with sample data* loads 2,000 retail orders, so you can explore every feature without your own file. |
+
+## Screenshots
+
+| Dashboard: breakdown & takeaways | AI outlook: forecast & momentum |
+|---|---|
+| ![Dashboard breakdown](docs/screenshots/dashboard-breakdown.jpg) | ![Outlook](docs/screenshots/insights.jpg) |
+
+| AI outlook brief (structured output) | Chat: answers, not code |
+|---|---|
+| ![AI brief](docs/screenshots/insights-brief.jpg) | ![Chat](docs/screenshots/chat.jpg) |
+
+## AI & ML techniques used
+
+| Technique | Where | Why it matters |
+|---|---|---|
+| **LLM agent with tool calling** | `modules/chat_agent.py` | The model decides *which* calculation answers a question and calls a sandboxed `run_python` tool or a `forecast_metric` tool. The answer comes from real computation. |
+| **Grounding / context engineering** | `chat_agent.build_dataset_context`, `outlook.signals_text` | Exact dataset facts and computed signals are given to the model up front, so simple questions need one call and every claim is traceable. |
+| **Structured outputs** | `modules/outlook.py` | The outlook brief is requested as a JSON schema and validated with **Pydantic** (with a retry), so the UI renders reliable cards instead of parsing free text. |
+| **Prompt engineering** | system prompts in `chat_agent.py`, `outlook.py` | Answer-first business language, "never invent numbers", honest confidence levels, no jargon. |
+| **Model fallback & resilience** | `modules/llm.py` | One gateway for all LLM calls. When a model hits its free-tier daily quota it automatically switches to another, with cooldowns and friendly messages. |
+| **AI safety guardrails** | `chat_agent._validate_code` | Model-written code is checked with an AST scan and run without imports or file, network or system access. The LLM never receives raw rows, only summaries. |
+| **Time-series forecasting** | `modules/predict.py` | Holt's exponential smoothing (damped trend, seasonality when there's enough history) on properly aggregated periods, with incomplete edge periods removed and an uncertainty band. |
+| **Classical ML** | `modules/predict.py` | Multi-model comparison, cross-validation, task-appropriate metrics, permutation importance. |
+
+## How it works
+
+```mermaid
+flowchart LR
+    CSV[CSV upload] --> L[Robust loader<br/>encoding, delimiter,<br/>header, number parsing]
+    L --> C[Cleaning<br/>approve-to-apply]
+    C --> DF[(Working DataFrame)]
+    DF --> D[Dashboard<br/>roles, KPIs, cross-filter]
+    DF --> S[Outlook signals<br/>forecast, momentum,<br/>seasonality, segments]
+    DF --> P[Predict<br/>forecasts & ML models]
+    S --> B[LLM brief<br/>JSON schema + Pydantic]
+    DF --> A[Chat agent]
+    A <-->|tool calls| T[run_python / forecast_metric<br/>sandboxed, computed]
+    B & A --> G[LLM gateway<br/>model fallback]
+    G --> Gem[(Gemini API)]
 ```
+
+## Quick start
+
+**Requirements:** Python 3.10+ and a free Gemini API key ([get one here](https://aistudio.google.com/apikey), no credit card needed). The app runs without a key too; only the AI brief and chat are disabled.
+
+```bash
+git clone https://github.com/rishithagona28/DataInsight-AI.git
+cd DataInsight-AI
+python -m venv venv
+venv\Scripts\activate           # macOS/Linux: source venv/bin/activate
+pip install -r requirements.txt
+copy .env.example .env          # macOS/Linux: cp .env.example .env  (then add your key)
 streamlit run app.py
 ```
 
-This opens the app in your browser at http://localhost:8501 — upload any
-CSV in the sidebar to get started.
+Open http://localhost:8501 and click **Try with sample data**.
 
-## Project layout
+> **Windows one-click:** double-click `Launch DataInsight AI.vbs` to start the app in the background and open it in your browser, and `Stop DataInsight AI.vbs` to stop it. (These expect the virtual environment in a `venv` folder one level up from the project; adjust the path in the script if yours differs.)
+
+### Configuration (`.env`)
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Your key. Read server-side only and never sent to the browser. |
+| `GEMINI_MODELS` | Optional comma-separated model order for automatic fallback. |
+| `LLM_BASE_URL` | Optional. Any OpenAI-compatible endpoint (Groq, OpenRouter, a local Ollama) works without code changes. |
+
+## Project structure
 
 ```
-app.py                  # Streamlit UI — seven tabs, wires the modules together
+app.py                    # Streamlit UI: seven tabs wiring the modules together
 modules/
-  eda.py                 # profiling: types, cardinality, outliers, quality report
-  cleaning.py             # cleaning recommendations (approval-gated, named transforms)
-  charts.py               # auto-dashboard chart builders (Plotly)
-  predict.py              # forecasting + multi-model comparison/evaluation/explainability
-  insights.py              # compact summaries + LLM calls (dataset insights, model comparison explanation)
-  chat_agent.py             # the code-executing chat agent (OpenAI-compatible tool use, sandboxed)
-  report.py                # assembles an already-computed session into one HTML report
+  loader.py               # robust CSV loading (encoding, delimiter, header, number parsing)
+  eda.py                  # profiling: column types, cardinality, outliers, quality report
+  cleaning.py             # approval-gated cleaning recommendations
+  dashboard.py            # client-ready dashboard: role detection, KPIs, cross-filtering, takeaways
+  charts.py               # detailed analysis charts (correlations, distributions, outliers)
+  predict.py              # forecasting (period aggregation + Holt) and ML model comparison
+  outlook.py              # forward-looking signals + structured AI brief (Pydantic)
+  chat_agent.py           # tool-calling chat agent with sandboxed code execution
+  insights.py             # dataset health summary and model-comparison explanations
+  llm.py                  # single LLM gateway with multi-model fallback
+  report.py               # self-contained HTML report
+  style.py                # theme-aware visual design (CSS) and hero banner
+sample_data/
+  make_sample.py          # generates the sample dataset (growth, seasonality, segment trends)
+  retail_sales.csv
+docs/screenshots/         # images used in this README
 ```
 
-## Performance at larger dataset sizes
+## Performance
 
-The app is built for practical, manageable CSV sizes rather than
-unlimited scale, but it's been specifically fixed and tested against a
-synthetic 300,000-row / 19MB file (see the caveats below):
+Tested against a synthetic **300,000-row / 19 MB** CSV:
+- Loading: clean files use pandas' fast C parser (about 0.7 s for 300K rows). The slower tolerant parser runs only when a file actually has malformed rows.
+- Charts aggregate or sample server-side before rendering, so the detailed chart section sends under 200 KB to the browser at any data size, and one bad column can't crash a page.
+- Model training samples above 50,000 rows, keeps high-cardinality columns out of one-hot encoding, and scales ensemble sizes. Full app render was under 10 s and the default prediction flow under 35 s.
+- Profiling, quality reports, signals and model comparisons are cached, so revisiting a tab doesn't recompute.
 
-- **Charts**: `scatter`/`box_plot`/`time_series_line`/`area_chart` used to
-  embed every raw row into the Plotly JSON sent to the browser (3–6.6MB
-  *per chart* at 300K rows — the actual cause of the browser tab
-  freezing). They now bin, sample, or aggregate server-side before
-  building the figure — the full 15-chart dashboard now sends under
-  200KB total, at any dataset size. A bad column in any single chart is
-  caught and skipped (`charts.safe_chart`) rather than crashing the tab.
-- **Model training**: rows above 50,000 are sampled before training
-  (stratified for classification), a datetime or very-high-cardinality
-  column is automatically excluded from one-hot encoding instead of
-  exploding into thousands of columns, and tree-ensemble sizes scale down
-  for larger training sets. Each model trains inside its own `st.status`
-  step, so a multi-model comparison shows real incremental progress
-  instead of one long silent block.
-- Measured on the 300K-row file: full app render (all 7 tabs, dashboard
-  charts, cleaning recommendations) in under 10 seconds; the default
-  single-model Predict flow (sampled to 40,000 training rows) in under 35
-  seconds — versus the original bug, where a single Random Forest
-  comparison alone ran past 2 minutes without finishing.
+## Limitations
 
-## Cost & performance notes
+- Forecasts follow past patterns (Holt's exponential smoothing) and can't anticipate future events. The shaded range is a rough guide, not a statistical confidence interval.
+- Model comparisons use default hyperparameters and one train/test split: a fast first read, not production-tuned models.
+- The code sandbox is a meaningful safeguard but not a full security boundary. Run the app for personal or local use, not for untrusted users.
+- Gemini's free tier has daily request limits per model. The fallback chain stretches them, and enabling billing (very low cost for this usage) removes the limit.
 
-- The LLM never sees raw rows — only compact, structured summaries
-  (shape, dtypes, stats, already-computed data-quality flags) built by
-  `eda.py`/`insights.py`. All aggregation, statistics, model training,
-  and evaluation happen in code, not in a prompt.
-- Profiling, cardinality, the data-quality report, and model comparisons
-  are cached (`st.cache_data`) so revisiting a tab or re-running the same
-  comparison doesn't recompute or retrain.
-- The dataset's shape/columns are sent once per session as grounding
-  context for the chat agent instead of being re-described on every turn.
+## Roadmap
 
-## Notes & limitations
+- [ ] **RAG with LangChain:** upload PDFs or reports and ask questions across documents *and* data, with citations
+- [ ] **LangGraph agent:** route each question to data analysis, document search or forecasting, with conversation memory
+- [ ] **Evaluation suite:** a question set scored for answer correctness and faithfulness (LLM-as-a-judge)
+- [ ] **Observability:** token, cost and latency tracking per question
+- [ ] **Deployment:** Docker image and a public demo link
 
-- The forecast is a simple trend model (Holt's exponential smoothing) meant
-  for quick exploration, not a statistically rigorous forecast — treat the
-  shown uncertainty band as a rough guide, not a confidence interval.
-- Model comparisons use default hyperparameters and a single train/test
-  split — a fast first read on predictability and trade-offs, not tuned,
-  production-ready models. ID-like columns are auto-suggested for
-  exclusion; review the list before training.
-- Cleaning recommendations are heuristics (median/mode imputation, IQR
-  outlier capping, whitespace/case normalization, duplicate removal) —
-  review each one's rationale before applying; nothing is automatic.
-- The chat agent executes model-written code in a restricted namespace
-  (no imports, no dunder-attribute access, no file/network/system access)
-  and pre-validates code with an AST check before running it — a
-  meaningful safeguard, but not a full security sandbox. This is meant
-  for personal/local use, not for exposing to untrusted users.
+## Author
+
+**Rishitha Naga Durga Gona** · [@rishithagona28](https://github.com/rishithagona28)

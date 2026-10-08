@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
@@ -24,6 +25,7 @@ load_dotenv()
 st.set_page_config(page_title="DataInsight AI", page_icon=":material/insights:", layout="wide")
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+SAMPLE_CSV = Path(__file__).parent / "sample_data" / "retail_sales.csv"
 # Gemini's OpenAI-compatible endpoint — talking to it through the `openai`
 # client means the same code would also work against Groq, OpenRouter, a
 # local Ollama server, or any other OpenAI-compatible provider by just
@@ -836,7 +838,8 @@ def render_report(df: pd.DataFrame, col_types: dict, dataset_name: str) -> None:
 
 
 def render_landing() -> None:
-    st.info("Upload a CSV in the sidebar to get started.", icon=":material/upload_file:")
+    st.info("Upload a CSV in the sidebar to get started, or click **Try with sample data** to explore with a ready-made retail dataset.",
+            icon=":material/upload_file:")
     with st.container(horizontal=True):
         with st.container(border=True, key="card_landing_0"):
             st.markdown(":material/cleaning_services: **Data quality & cleaning**")
@@ -860,6 +863,18 @@ def main() -> None:
         st.markdown("## :material/insights: DataInsight AI")
         st.caption("Your AI-powered data analyst")
         uploaded_file = st.file_uploader("Upload a CSV file", type=["csv", "tsv", "txt"])
+        if uploaded_file is not None:
+            st.session_state["use_sample"] = False
+        elif SAMPLE_CSV.exists():
+            if st.session_state.get("use_sample"):
+                st.caption(":material/science: Exploring the sample retail dataset.")
+                if st.button("Stop using sample data", icon=":material/close:", width="stretch"):
+                    st.session_state["use_sample"] = False
+                    st.rerun()
+            elif st.button("Try with sample data", icon=":material/science:", width="stretch",
+                           help="2,000 synthetic retail orders across 20 months, to explore every feature without your own file"):
+                st.session_state["use_sample"] = True
+                st.rerun()
         st.space("small")
         if API_KEY:
             st.badge("AI features ready", icon=":material/check_circle:", color="green")
@@ -873,26 +888,30 @@ def main() -> None:
         ["Any CSV", "Auto-cleaning", "Interactive dashboard", "Forecasts", "Ask in plain English"],
     )
 
-    if uploaded_file is None:
+    if uploaded_file is not None:
+        file_name, file_bytes = uploaded_file.name, uploaded_file.getvalue()
+    elif st.session_state.get("use_sample") and SAMPLE_CSV.exists():
+        file_name, file_bytes = SAMPLE_CSV.name, SAMPLE_CSV.read_bytes()
+    else:
         render_landing()
         return
 
     try:
-        raw_df, load_notes = load_csv(uploaded_file.getvalue())
+        raw_df, load_notes = load_csv(file_bytes)
     except loader.CSVLoadError as exc:
-        st.error(f"Couldn't read **{uploaded_file.name}**: {exc}", icon=":material/error:")
+        st.error(f"Couldn't read **{file_name}**: {exc}", icon=":material/error:")
         return
     except Exception as exc:
-        st.error(f"Couldn't read **{uploaded_file.name}** as a table: {exc}", icon=":material/error:")
+        st.error(f"Couldn't read **{file_name}** as a table: {exc}", icon=":material/error:")
         return
     if load_notes:
-        with st.expander(f"Loaded **{uploaded_file.name}** with {len(load_notes)} automatic adjustment(s)", icon=":material/auto_fix_high:"):
+        with st.expander(f"Loaded **{file_name}** with {len(load_notes)} automatic adjustment(s)", icon=":material/auto_fix_high:"):
             for note in load_notes:
                 st.markdown(f"- {note}")
 
     typed_df, _ = prepare_dataframe(raw_df)
 
-    fingerprint = (uploaded_file.name, uploaded_file.size)
+    fingerprint = (file_name, len(file_bytes))
     if st.session_state.get("dataset_fingerprint") != fingerprint:
         st.session_state["dataset_fingerprint"] = fingerprint
         st.session_state["raw_df"] = typed_df
@@ -930,7 +949,7 @@ def main() -> None:
     with tabs[5]:
         render_chat(df, col_types)
     with tabs[6]:
-        render_report(df, col_types, uploaded_file.name)
+        render_report(df, col_types, file_name)
 
 
 if __name__ == "__main__":

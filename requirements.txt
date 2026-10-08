@@ -6,3 +6,4 @@ openai
 python-dotenv
 scikit-learn>=1.4
 statsmodels>=0.14
+pydantic>=2

@@ -26,7 +26,8 @@ from . import eda
 from .predict import _LEVEL_NAME
 
 # Column names that usually hold business amounts, in order of how much a client cares
-_MONEY_HINT = re.compile(r"revenue|sales|amount|profit|income|gmv|turnover|total|value|spend|cost|fees?|margin|price", re.I)
+_MONEY_HINT = re.compile(r"revenue|sales|amount|profit|income|gmv|turnover|total|value|spend", re.I)
+_COST_HINT = re.compile(r"cost|fees?|margin|expense", re.I)
 _QTY_HINT = re.compile(r"qty|quantity|units|orders|volume|count", re.I)
 # Columns that usually make good "break down by" groupings
 _DIM_HINT = re.compile(r"region|category|segment|department|product|type|channel|city|state|country|store|branch|team", re.I)
@@ -43,7 +44,18 @@ def detect_roles(df: pd.DataFrame, col_types: dict) -> dict:
         c for c in col_types.get("numeric", [])
         if c not in id_like and not _NOT_A_MEASURE.search(str(c)) and df[c].nunique(dropna=True) > 1
     ]
-    measures.sort(key=lambda c: 0 if _MONEY_HINT.search(str(c)) else 1 if _QTY_HINT.search(str(c)) else 2)
+    def priority(c: str) -> int:
+        name = str(c)
+        if _LEVEL_NAME.search(name):   # price, rating, rate...: averages, not the headline number
+            return 4
+        if _MONEY_HINT.search(name):   # revenue, sales, amount: what clients care about most
+            return 0
+        if _COST_HINT.search(name):
+            return 1
+        if _QTY_HINT.search(name):     # units, quantity, orders
+            return 2
+        return 3
+    measures.sort(key=priority)
 
     dims = [c for c in col_types.get("categorical", []) + col_types.get("boolean", [])
             if 2 <= df[c].nunique(dropna=True) <= 40]
@@ -159,7 +171,8 @@ def ranking_chart(ranked: pd.Series, selected: list[str], label: str) -> go.Figu
         hovertemplate=f"<b>%{{y}}</b><br>{label}: %{{x:,.0f}}<extra></extra>",
     ))
     fig = _style(fig, max(260, 34 * len(ranked) + 40))
-    fig.update_xaxes(showticklabels=False, gridcolor="rgba(0,0,0,0)")
+    # extra room on the right so the value labels outside the bars aren't cut off
+    fig.update_xaxes(showticklabels=False, gridcolor="rgba(0,0,0,0)", range=[0, max(values.max(), 0) * 1.18 or 1])
     return fig
 
 
