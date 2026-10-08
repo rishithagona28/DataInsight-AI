@@ -9,6 +9,7 @@ data by writing and running real pandas code (not guessing).
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -16,7 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from modules import charts, chat_agent, cleaning, eda, insights, loader, predict, report
+from modules import charts, chat_agent, cleaning, eda, insights, llm, loader, predict, report
 
 load_dotenv()
 
@@ -62,7 +63,9 @@ def get_llm_client():
     OpenAI-compatible endpoint by default (see LLM_BASE_URL above)."""
     import openai
 
-    return openai.OpenAI(api_key=API_KEY, base_url=LLM_BASE_URL)
+    # max_retries=0: the library's built-in retry waits out rate limits (up to a
+    # minute+). modules/llm.py instead switches straight to another model.
+    return openai.OpenAI(api_key=API_KEY, base_url=LLM_BASE_URL, max_retries=0, timeout=60)
 
 
 @st.cache_data(show_spinner=False)
@@ -385,7 +388,8 @@ def render_predict(df: pd.DataFrame, col_types: dict) -> None:
                 with st.container(border=True):
                     st.caption(f"Detected frequency: {result['freq_detected']} · seasonality: {result['seasonal']} · {result['periods']} period(s) forecast")
                     if result["growth_pct"] is not None:
-                        st.metric(f"Expected change in {value_col}", f"{result['growth_pct']:+.1f}%", delta=f"{result['growth_pct']:+.1f}%", border=True)
+                        st.metric(f"Expected change in {value_col}", f"{result['growth_pct']:+.1f}%", delta=f"{result['growth_pct']:+.1f}%", border=True,
+                                  help=f"Forecast for the next {result['periods']} {result.get('period_name') or 'period'}(s) compared with the last {result['periods']}.")
 
                     fig = go.Figure()
                     fig.add_scatter(x=result["actual"]["date"], y=result["actual"]["value"], mode="lines", name="Actual", line=dict(color=charts.CATEGORICAL_PALETTE[0]))
@@ -533,13 +537,28 @@ def render_insights(df: pd.DataFrame, col_types: dict) -> None:
             st.markdown(st.session_state["insights_text"])
 
 
-def _render_chat_artifact(art: dict, key: str) -> None:
-    st.code(art["code"], language="python")
-    result = art["result"]
-    if isinstance(result, go.Figure):
-        st.plotly_chart(result, width="stretch", key=key)
-    elif isinstance(result, (pd.DataFrame, pd.Series)):
-        st.dataframe(result, width="stretch", key=key)
+CHAT_SUGGESTIONS = {
+    ":material/summarize: Summarize this data": "Summarize this data in simple words, like you would for a manager.",
+    ":material/leaderboard: What performs best?": "Which group or category performs best, and by how much?",
+    ":material/trending_up: What happens next?": "What will the main numbers look like over the next 3 months?",
+    ":material/lightbulb: Recommendations": "Based on this data, give me 3 practical recommendations.",
+}
+
+
+def _render_answer_extras(artifacts: list, key: str) -> None:
+    """Show what supports an answer: any chart the user asked for, otherwise the
+    final table behind the numbers (collapsed). Never the code."""
+    figures = [a["result"] for a in artifacts if isinstance(a.get("result"), go.Figure)]
+    for i, fig in enumerate(figures):
+        st.plotly_chart(fig, width="stretch", key=f"{key}_fig{i}")
+    if figures:
+        return
+    tables = [a["result"] for a in artifacts if isinstance(a.get("result"), (pd.DataFrame, pd.Series))]
+    if tables:
+        table = tables[-1].to_frame() if isinstance(tables[-1], pd.Series) else tables[-1]
+        if 0 < len(table) <= 30:
+            with st.expander("See the numbers", icon=":material/table_chart:"):
+                st.dataframe(table, width="stretch", key=f"{key}_table")
 
 
 def render_chat(df: pd.DataFrame, col_types: dict) -> None:
@@ -554,38 +573,59 @@ def render_chat(df: pd.DataFrame, col_types: dict) -> None:
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []  # OpenAI-style chat message format (role/content/tool_calls)
     if "dataset_context" not in st.session_state:
-        # Built once per dataset (see main()'s fingerprint reset), reused
-        # every turn as part of the cached system prompt rather than
-        # re-describing the dataset on every message.
+        # Built once per dataset (see main()'s fingerprint reset), reused every
+        # turn so the model already knows the key facts about the data.
         quality_issues = compute_quality_report(df, col_types)
         st.session_state["dataset_context"] = chat_agent.build_dataset_context(df, col_types, quality_issues)
 
     for t, turn in enumerate(st.session_state["chat_display"]):
         with st.chat_message(turn["role"]):
             st.markdown(turn["text"])
-            for a, art in enumerate(turn.get("artifacts", [])):
-                _render_chat_artifact(art, key=f"chat_hist_{t}_{a}")
+            _render_answer_extras(turn.get("artifacts", []), key=f"chat_hist_{t}")
 
-    question = st.chat_input("Ask a question about your data...")
-    if question:
-        st.session_state["chat_display"].append({"role": "user", "text": question})
-        st.session_state["chat_history"].append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
+    # Clickable starter questions, shown only before the first message
+    question = None
+    if not st.session_state["chat_display"]:
+        st.caption("Ask anything about your data in plain English, or try one of these:")
+        picked = st.pills("Suggested questions", list(CHAT_SUGGESTIONS), label_visibility="collapsed", key="chat_suggestion")
+        if picked:
+            question = CHAT_SUGGESTIONS[picked]
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    outcome = chat_agent.ask(client, df, st.session_state["chat_history"], dataset_context=st.session_state["dataset_context"])
-                except Exception as exc:
-                    st.error(f"Something went wrong: {exc}")
-                    return
-            st.session_state["chat_history"] = outcome["history"]
-            st.markdown(outcome["final_text"])
-            turn_index = len(st.session_state["chat_display"])
-            for a, art in enumerate(outcome["artifacts"]):
-                _render_chat_artifact(art, key=f"chat_new_{turn_index}_{a}")
-        st.session_state["chat_display"].append({"role": "assistant", "text": outcome["final_text"], "artifacts": outcome["artifacts"]})
+    typed = st.chat_input("Ask a question about your data...", submit_mode="disable")
+    question = typed or question
+    if not question:
+        return
+
+    st.session_state["chat_display"].append({"role": "user", "text": question})
+    st.session_state["chat_history"].append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    with st.chat_message("assistant"):
+        started = time.time()
+        with st.status(":shimmer[Analyzing your data]", type="compact") as status:
+            try:
+                outcome = chat_agent.ask(client, df, st.session_state["chat_history"], dataset_context=st.session_state["dataset_context"])
+            except llm.AllModelsBusy as exc:
+                status.update(label="AI limit reached for now", state="error")
+                st.session_state["chat_history"].pop()
+                st.session_state["chat_display"].append({"role": "assistant", "text": f":orange[{exc}]"})
+                st.rerun()
+            except Exception as exc:  # noqa: BLE001 — show a friendly message instead of a traceback
+                status.update(label="Something went wrong", state="error")
+                st.session_state["chat_history"].pop()
+                st.session_state["chat_display"].append({"role": "assistant", "text": f":red[Sorry, I couldn't answer that just now ({type(exc).__name__}). Please try again.]"})
+                st.rerun()
+            steps = len(outcome["artifacts"])
+            label = f"Analyzed your data in {time.time() - started:.0f}s"
+            if steps:
+                label += f" · {steps} calculation{'s' if steps > 1 else ''}"
+            status.update(label=label, state="complete")
+        st.session_state["chat_history"] = outcome["history"]
+        st.markdown(outcome["final_text"])
+        turn_index = len(st.session_state["chat_display"])
+        _render_answer_extras(outcome["artifacts"], key=f"chat_new_{turn_index}")
+    st.session_state["chat_display"].append({"role": "assistant", "text": outcome["final_text"], "artifacts": outcome["artifacts"]})
 
 
 def render_report(df: pd.DataFrame, col_types: dict, dataset_name: str) -> None:

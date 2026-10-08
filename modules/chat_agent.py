@@ -19,33 +19,45 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from . import predict
+from . import llm, predict
 
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 MAX_TURNS = 6
 
-SYSTEM_PROMPT = (
-    "You are Ana, a data analyst assistant. You answer questions about a "
-    "pandas DataFrame called `df` that is already loaded — you never see "
-    "the raw data directly, only what your tool calls return. To answer a "
-    "question, call the run_python tool with short pandas/numpy code. "
-    "Assign whatever you want to see to a variable named `result` (a "
-    "number, string, Series, DataFrame, or a Plotly figure built with `px` "
-    "or `go` — assign the figure itself, don't call .show()). It will be "
-    "shown back to you and, for a figure, rendered as a chart for the "
-    "user. Use print() for anything else you want visibility into. Keep "
-    "code focused on one question at a time; you can call the tool more "
-    "than once if the first attempt errors or needs refining. Once you "
-    "have enough to answer, reply in plain language, citing the actual "
-    "numbers you computed. Never fabricate a number you did not compute. "
-    "When asked to 'create a chart' or 'show' something visually, build it "
-    "with px/go and assign it to `result` rather than describing it in text. "
-    "When asked to predict or forecast a metric for a future period (e.g. "
-    "'forecast revenue for the next 6 months'), call the forecast_metric "
-    "tool instead of writing your own trend code — it runs the same "
-    "vetted forecasting model as the app's Predict tab and returns a real "
-    "chart, so the answer is calculated, not improvised."
-)
+SYSTEM_PROMPT = """You are Ana, a friendly senior data analyst. The person you're talking to is a
+business user, not a programmer. They want answers, not code.
+
+HOW TO ANSWER
+- Start with the direct answer in the first sentence, using the real numbers
+  (thousands separators, % to 1 decimal). Only use a currency symbol if the data or the
+  user uses one; never assume dollars.
+- Then add at most 3 short bullet points: supporting detail, or what it means for the business.
+- Keep it under about 120 words unless they ask for more detail.
+- Never show code, function names, tool names, column data types, or technical jargon.
+  The user never sees your tool calls, only your final words.
+
+WHERE THE NUMBERS COME FROM
+- You may use the DATASET FACTS below directly; don't run a tool for those.
+- For anything else about the data (filters, totals by group, rankings, comparisons,
+  trends over time, specific rows) call run_python. Never guess or estimate a number you
+  did not compute.
+- For questions about the future (next month, next quarter, "will it grow", forecasts)
+  call forecast_metric and explain the result in plain words, including that it is an
+  estimate based on past trends.
+- When they ask for a chart, graph, or visual, build a clean Plotly figure with px or go
+  (clear title, readable labels) and assign it to `result`; then describe in one or two
+  sentences what it shows.
+
+EVERYTHING ELSE
+- Greetings, "what does X mean", business advice, recommendations, next steps: answer from
+  your own knowledge, grounded in the data facts when relevant. Make clear when something
+  is general advice rather than something the data proves.
+- If a question is ambiguous, make a sensible assumption, say it in a few words, and answer.
+
+TOOL CODE RULES (for run_python only)
+- `df` is already loaded; pd, np, px and go are available; no imports.
+- Assign what you need to a variable named `result`.
+"""
 
 RUN_PYTHON_TOOL = {
     "type": "function",
@@ -185,29 +197,65 @@ def forecast_metric_tool(date_column: str, value_column: str, horizon_months: fl
     fig.update_layout(title=f"{value_column}: actual vs. forecast ({horizon_months} month horizon)")
 
     growth = result["growth_pct"]
-    growth_txt = f"{growth:+.1f}%" if growth is not None else "not computable (last actual value was 0)"
-    end_value = float(result["forecast"]["value"].iloc[-1])
-    text = (
-        f"Forecasted {value_column} {horizon_months} month(s) ahead "
-        f"({result['periods']} period(s) at detected frequency '{result['freq_detected']}'). "
-        f"Expected change vs. the last actual value: {growth_txt}. "
-        f"Forecast end value: {end_value:.2f}. A chart is shown to the user."
-    )
+    period = result.get("period_name") or "period"
+    n = result["periods"]
+    if result.get("aggregation") == "sum":
+        basis = (f"Forecast total {value_column} for the next {n} {period}(s): {_fmt(result['forecast_total'])}, "
+                 f"vs {_fmt(result['recent_total'])} in the last {n} {period}(s)")
+    else:
+        basis = (f"Forecast average {value_column} per {period} over the next {n} {period}(s): "
+                 f"{_fmt(result['forecast_total'] / n)}, vs {_fmt(result['recent_total'] / n)} over the last {n}")
+    change = f" ({growth:+.1f}%)" if growth is not None else ""
+    note = f" {result['dropped_partial_periods']} incomplete {period}(s) at the edges of the data were left out." if result.get("dropped_partial_periods") else ""
+    text = (f"{basis}{change}. Method: trend model on {period}ly {('totals' if result.get('aggregation') == 'sum' else 'values')}, "
+            f"based on past patterns only; it can't know about future events.{note} A chart is shown to the user.")
     return {"text": text, "result": fig, "ok": True}
 
 
-def build_dataset_context(df: pd.DataFrame, col_types: dict, quality_issues: list | None = None) -> str:
-    """A short, static block describing the loaded dataframe's shape and
-    columns (not the rows) — sent once per session as part of the cached
-    system prompt instead of the model having to spend a turn discovering
-    columns, and instead of re-describing the dataset on every turn."""
-    lines = [f"The loaded `df` has {df.shape[0]} rows and {df.shape[1]} columns.", "Columns (name: detected type):"]
-    kind_by_col = {c: kind for kind, cols in col_types.items() for c in cols}
-    for col in df.columns:
-        lines.append(f"- {col}: {kind_by_col.get(col, 'unknown')} ({df[col].dtype})")
+def _fmt(x) -> str:
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return str(x)
+    return f"{x:,.0f}" if abs(x) >= 100 else f"{x:,.2f}"
+
+
+def build_dataset_context(df: pd.DataFrame, col_types: dict, quality_issues: list | None = None,
+                          max_chars: int = 5000) -> str:
+    """Key facts about the loaded data, computed once per dataset and sent with
+    every question. With these up front, simple questions (totals, averages,
+    biggest category, date range) are answered in ONE model call instead of
+    3-4, which is faster and uses much less of the daily free quota."""
+    numeric = [c for c in col_types.get("numeric", []) if c in df.columns]
+    categorical = [c for c in col_types.get("categorical", []) if c in df.columns]
+    dates = [c for c in col_types.get("datetime", []) if c in df.columns]
+
+    lines = ["DATASET FACTS (computed from the full data, exact):",
+             f"- {df.shape[0]:,} rows and {df.shape[1]} columns: {', '.join(map(str, df.columns))}"]
+    for col in dates:
+        d = pd.to_datetime(df[col], errors="coerce").dropna()
+        if not d.empty:
+            lines.append(f"- {col}: from {d.min():%d %b %Y} to {d.max():%d %b %Y}")
+    for col in numeric[:8]:
+        s = df[col].dropna()
+        if not s.empty:
+            lines.append(f"- {col}: total {_fmt(s.sum())}, average {_fmt(s.mean())}, median {_fmt(s.median())}, "
+                         f"min {_fmt(s.min())}, max {_fmt(s.max())}, missing {df[col].isna().sum():,}")
+    for col in categorical[:6]:
+        vc = df[col].value_counts(dropna=True)
+        top = ", ".join(f"{k} ({v:,}, {v / len(df):.0%})" for k, v in vc.head(6).items())
+        lines.append(f"- {col}: {vc.size} distinct values; most common: {top}")
+    # Totals of the main numeric columns per category: the most common questions
+    for cat in categorical[:2]:
+        if df[cat].nunique() > 20:
+            continue
+        for num in numeric[:2]:
+            g = df.groupby(cat, observed=True)[num].sum().sort_values(ascending=False)
+            lines.append(f"- total {num} by {cat}: " + ", ".join(f"{k} {_fmt(v)}" for k, v in g.head(8).items()))
     if quality_issues:
-        lines.append(f"{len(quality_issues)} data-quality issue(s) were already flagged programmatically (missing values, outliers, duplicates, etc.) — you can query `df` directly for the specifics if relevant.")
-    return "\n".join(lines)
+        lines.append(f"- {len(quality_issues)} data-quality issue(s) were flagged (missing values, outliers, duplicates, etc.).")
+    text = "\n".join(lines)
+    return text if len(text) <= max_chars else text[:max_chars] + "\n- (more facts omitted)"
 
 
 def _dispatch_tool_call(name: str, arguments: dict, df: pd.DataFrame) -> tuple[str, dict]:
@@ -240,12 +288,7 @@ def ask(client, df: pd.DataFrame, history: list, dataset_context: str = "", mode
     full_messages = [{"role": "system", "content": system_text}] + messages
 
     for _ in range(MAX_TURNS):
-        response = client.chat.completions.create(
-            model=model or DEFAULT_MODEL,
-            max_tokens=1500,
-            tools=[RUN_PYTHON_TOOL, FORECAST_TOOL],
-            messages=full_messages,
-        )
+        response, model_used = llm.complete(client, messages=full_messages, tools=[RUN_PYTHON_TOOL, FORECAST_TOOL])
 
         message = response.choices[0].message
         assistant_msg = {"role": "assistant", "content": message.content or ""}
@@ -267,7 +310,8 @@ def ask(client, df: pd.DataFrame, history: list, dataset_context: str = "", mode
         full_messages.append(assistant_msg)
 
         if not tool_calls:
-            return {"history": messages, "final_text": message.content or "", "artifacts": artifacts}
+            answer = llm.strip_code_blocks(message.content) or "Sorry, I couldn't come up with an answer to that. Could you rephrase it?"
+            return {"history": messages, "final_text": answer, "artifacts": artifacts, "model": model_used}
 
         for tc in tool_calls:
             try:
@@ -282,6 +326,7 @@ def ask(client, df: pd.DataFrame, history: list, dataset_context: str = "", mode
 
     return {
         "history": messages,
-        "final_text": "I wasn't able to finish within the step limit — try breaking your question into a smaller one.",
+        "final_text": "That one needed more steps than I'm allowed. Could you ask it as a smaller, more specific question?",
         "artifacts": artifacts,
+        "model": None,
     }

@@ -9,6 +9,7 @@ replacement for real feature engineering or model selection.
 
 from __future__ import annotations
 
+import re
 import time
 
 import numpy as np
@@ -139,16 +140,9 @@ def forecast_time_series(df: pd.DataFrame, date_col: str, value_col: str, period
     if not ok:
         raise ValueError(reason)
 
-    series = (
-        df[[date_col, value_col]]
-        .dropna()
-        .sort_values(date_col)
-        .groupby(date_col, as_index=True)[value_col]
-        .mean()
-    )
-    series.index = pd.DatetimeIndex(series.index)
-
-    freq = pd.infer_freq(series.index)
+    series, freq, agg, period_name, dropped = build_period_series(df, date_col, value_col)
+    if len(series) < 5:
+        raise ValueError(f"Only {len(series)} complete {period_name} periods of data; need at least 5 to forecast.")
     if periods is None:
         periods = periods_for_horizon(freq, horizon_months)
     if freq is None:
@@ -186,18 +180,89 @@ def forecast_time_series(df: pd.DataFrame, date_col: str, value_col: str, period
         "high": forecast_values + band,
     })
 
-    last_actual = float(series.values[-1])
-    last_forecast = float(forecast_values[-1])
-    growth_pct = round(100 * (last_forecast - last_actual) / last_actual, 1) if last_actual else None
+    # Compare like with like: the forecast horizon vs the same number of most
+    # recent actual periods (e.g. next 3 months vs last 3 months). Comparing
+    # against one single last value is noisy and misleading.
+    recent = series.values[-periods:] if len(series) >= periods else series.values
+    recent_avg = float(np.mean(recent))
+    forecast_avg = float(np.mean(forecast_values))
+    growth_pct = round(100 * (forecast_avg - recent_avg) / abs(recent_avg), 1) if recent_avg else None
 
     return {
         "actual": actual_df,
         "forecast": forecast_df,
-        "freq_detected": freq or "irregular (using median gap)",
+        "freq_detected": f"{period_name} {'totals' if agg == 'sum' else 'averages'}" if agg else (freq or "irregular (using median gap)"),
         "seasonal": seasonal or "none",
         "periods": periods,
         "growth_pct": growth_pct,
+        "aggregation": agg,                       # "sum", "mean", or None (data already one value per period)
+        "period_name": period_name,               # "month", "week", "day", ...
+        "forecast_total": float(np.sum(forecast_values)),
+        "recent_total": float(np.sum(recent)),
+        "dropped_partial_periods": dropped,
     }
+
+
+# Columns whose values are a *level* (averaged over a period) rather than an
+# *amount* (added up over a period). Revenue per month is a sum; price per month is an average.
+_LEVEL_NAME = re.compile(
+    r"price|rate|ratio|avg|average|mean|median|score|rating|temp|percent|pct|%|margin|age|index|balance|level|close|open|high|low",
+    re.I,
+)
+
+
+def build_period_series(df: pd.DataFrame, date_col: str, value_col: str):
+    """Turn raw rows into one value per period, the way an analyst would before forecasting.
+
+    - Data that is already one row per regular period (e.g. a monthly report) is used as is.
+    - Transaction-style data (many rows per day, or irregular dates) is grouped into
+      months (>= 6 months of data), weeks (>= 8 weeks) or days. Amounts like revenue or
+      units are SUMMED per period; levels like price or rating are AVERAGED.
+    - Incomplete first/last periods (e.g. a month that has only 10 days of data) are
+      dropped, because a half-recorded month looks like a sales collapse to a model.
+
+    Returns (series, freq, aggregation, period_name, dropped_partial_periods).
+    """
+    data = df[[date_col, value_col]].dropna()
+    dates = pd.to_datetime(data[date_col], errors="coerce")
+    data = data.assign(**{date_col: dates}).dropna().sort_values(date_col)
+
+    unique_dates = pd.DatetimeIndex(data[date_col].drop_duplicates())
+    one_row_per_date = len(unique_dates) == len(data)
+    regular_freq = pd.infer_freq(unique_dates) if len(unique_dates) >= 3 else None
+    if one_row_per_date and regular_freq:
+        series = data.set_index(date_col)[value_col]
+        series.index = pd.DatetimeIndex(series.index)
+        name = {"M": "month", "MS": "month", "W": "week", "D": "day", "B": "business day", "Q": "quarter", "QS": "quarter"}.get(
+            regular_freq.upper().lstrip("0123456789").split("-")[0], "period")
+        return series, regular_freq, None, name, 0
+
+    agg = "mean" if _LEVEL_NAME.search(str(value_col)) else "sum"
+    span_days = (data[date_col].max() - data[date_col].min()).days
+    if span_days >= 180:
+        rule, name = "MS", "month"
+    elif span_days >= 56:
+        rule, name = "W-SUN", "week"
+    else:
+        rule, name = "D", "day"
+
+    series = data.set_index(date_col)[value_col].resample(rule).agg(agg)
+    if agg == "mean":
+        series = series.interpolate(limit_direction="both")
+
+    dropped = 0
+    first, last = data[date_col].min(), data[date_col].max()
+    if rule == "MS":
+        if first.day > 1 and len(series) > 6:
+            series, dropped = series.iloc[1:], dropped + 1
+        if not last.is_month_end and len(series) > 6:
+            series, dropped = series.iloc[:-1], dropped + 1
+    elif rule == "W-SUN":
+        if first.dayofweek != 0 and len(series) > 6:   # week didn't start on Monday
+            series, dropped = series.iloc[1:], dropped + 1
+        if last.dayofweek != 6 and len(series) > 6:    # week didn't end on Sunday
+            series, dropped = series.iloc[:-1], dropped + 1
+    return series, rule, agg, name, dropped
 
 
 # ---------------------------------------------------------------------------

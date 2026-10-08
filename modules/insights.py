@@ -10,6 +10,8 @@ import os
 
 import pandas as pd
 
+from . import llm
+
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 SYSTEM_PROMPT = (
@@ -88,14 +90,10 @@ def build_summary_text(df: pd.DataFrame, col_types: dict, quality_issues: list |
 def generate_insights(client, df: pd.DataFrame, col_types: dict, quality_issues: list | None = None, model: str | None = None) -> str:
     summary = build_summary_text(df, col_types, quality_issues=quality_issues)
 
-    response = client.chat.completions.create(
-        model=model or DEFAULT_MODEL,
-        max_tokens=1200,
-        messages=[
+    response, _ = llm.complete(client, max_tokens=1200, messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Here is the dataset summary:\n\n{summary}"},
-        ],
-    )
+        ])
     return response.choices[0].message.content or ""
 
 
@@ -137,12 +135,8 @@ def build_model_comparison_summary_text(comparison: dict, max_chars: int = 6000)
 def generate_model_comparison_summary(client, comparison: dict, model: str | None = None) -> str:
     summary = build_model_comparison_summary_text(comparison)
 
-    response = client.chat.completions.create(
-        model=model or DEFAULT_MODEL,
-        max_tokens=1000,
-        messages=[
+    response, _ = llm.complete(client, max_tokens=1000, messages=[
             {"role": "system", "content": MODEL_COMPARISON_SYSTEM_PROMPT},
             {"role": "user", "content": f"Here is the model comparison summary:\n\n{summary}"},
-        ],
-    )
+        ])
     return response.choices[0].message.content or ""
