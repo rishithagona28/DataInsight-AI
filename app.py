@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from modules import charts, chat_agent, cleaning, dashboard, eda, insights, llm, loader, predict, report, style
+from modules import charts, chat_agent, cleaning, dashboard, eda, insights, llm, loader, outlook, predict, report, style
 
 load_dotenv()
 
@@ -120,6 +120,8 @@ def _invalidate_derived_state() -> None:
     that dataframe changes (new upload, or a cleaning step applied/reset)
     so a stale AI/ML result never shows next to different data."""
     st.session_state.pop("insights_text", None)
+    st.session_state.pop("outlook_brief", None)
+    st.session_state.pop("dataset_summary_text", None)
     st.session_state.pop("model_comparison", None)
     st.session_state.pop("model_comparison_target", None)
     st.session_state.pop("model_comparison_explanation", None)
@@ -524,26 +526,178 @@ def render_predict(df: pd.DataFrame, col_types: dict) -> None:
                         st.dataframe(comp_df.head(30), hide_index=True, width="stretch", key=f"actual_pred_{r['model']}")
 
 
+@st.cache_data(show_spinner=False, max_entries=5)
+def compute_outlook_signals(df: pd.DataFrame, col_types: dict) -> dict:
+    return outlook.compute_signals(df, col_types)
+
+
+def _forecast_figure(sig: dict) -> go.Figure:
+    fc = sig["_forecast_frame"]
+    actual, future = fc["actual"], fc["forecast"]
+    label = sig["measure"]
+    fig = go.Figure()
+    # Shaded likely range, then the actual history, then the forecast line
+    fig.add_scatter(x=list(future["date"]) + list(future["date"])[::-1],
+                    y=list(future["high"]) + list(future["low"])[::-1],
+                    mode="lines", fill="toself", fillcolor="rgba(124,92,255,0.18)", line=dict(width=0),
+                    hoverinfo="skip", name="Likely range")
+    fig.add_scatter(x=actual["date"], y=actual["value"], mode="lines+markers", name="Actual",
+                    line=dict(width=3, shape="spline", smoothing=0.5), marker=dict(size=5),
+                    hovertemplate=f"%{{x|%b %Y}}<br>{label}: %{{y:,.0f}}<extra>Actual</extra>")
+    bridge_x = [actual["date"].iloc[-1]] + list(future["date"])
+    bridge_y = [actual["value"].iloc[-1]] + list(future["value"])
+    fig.add_scatter(x=bridge_x, y=bridge_y, mode="lines+markers", name="Forecast",
+                    line=dict(width=3, dash="dash", color="#7c5cff"), marker=dict(size=7, color="#7c5cff"),
+                    hovertemplate="%{x|%b %Y}<br>Forecast: %{y:,.0f}<extra></extra>")
+    return dashboard._style(fig, 340)
+
+
+def _momentum_figure(sig: dict) -> go.Figure:
+    segs = [s for s in sig.get("segments", []) if s["momentum_pct"] is not None][:12]
+    names = [s["group"] for s in segs][::-1]
+    vals = [s["momentum_pct"] for s in segs][::-1]
+    fig = go.Figure(go.Bar(
+        x=vals, y=names, orientation="h",
+        marker=dict(color=["#1baf7a" if v >= 0 else "#e34948" for v in vals], cornerradius=6),
+        text=[f"{v:+.1f}%" for v in vals], textposition="outside", cliponaxis=False,
+        hovertemplate="<b>%{y}</b><br>%{x:+.1f}% vs previous 3 periods<extra></extra>",
+    ))
+    fig.add_vline(x=0, line_width=1, line_color="rgba(128,128,128,0.5)")
+    fig = dashboard._style(fig, max(240, 40 * len(segs) + 40))
+    # leave room on both sides so the "+12.3%" labels outside the bars aren't cut off
+    lo, hi = min(vals + [0]), max(vals + [0])
+    pad = (hi - lo) * 0.3 or 10
+    fig.update_xaxes(showticklabels=False, range=[lo - (pad if lo < 0 else 0), hi + (pad if hi > 0 else 0)])
+    return fig
+
+
+def _trend_word(pct) -> str:
+    if pct is None:
+        return "-"
+    return "Rising" if pct >= 3 else "Falling" if pct <= -3 else "Flat"
+
+
 def render_insights(df: pd.DataFrame, col_types: dict) -> None:
-    if not API_KEY:
-        st.warning("Add a GEMINI_API_KEY to your .env file to enable AI-generated insights.", icon=":material/key_off:")
-        return
+    sig = compute_outlook_signals(df, col_types)
+    measure, period = sig.get("measure"), sig.get("period", "period")
+    fc = sig.get("forecast")
 
-    label = "Regenerate insights" if "insights_text" in st.session_state else "Generate insights"
-    if st.button(label, type="primary", icon=":material/auto_awesome:"):
-        with st.skeleton(height=260):
-            try:
-                client = get_llm_client()
-                quality_issues = compute_quality_report(df, col_types)
-                st.session_state["insights_text"] = insights.generate_insights(client, df, col_types, quality_issues=quality_issues)
-            except Exception as exc:
-                st.error(f"Couldn't generate insights: {exc}", icon=":material/error:")
-                return
-        st.toast("Insights ready", icon=":material/check_circle:")
+    st.subheader("What's ahead", icon=":material/insights:")
+    if measure:
+        st.caption(f"Forward-looking view of **{measure}**. The numbers and charts are calculated directly from your data; "
+                   "the AI brief below only explains them.")
 
-    if "insights_text" in st.session_state:
-        with st.container(border=True):
-            st.markdown(st.session_state["insights_text"])
+    # ---- Computed KPIs (no AI, always available) ----
+    with st.container(horizontal=True, key="card_outlook_kpis"):
+        if fc:
+            n = fc["periods"]
+            st.metric(f"Next {n} {fc['period']}s (forecast)", dashboard.fmt(fc["next_total"]),
+                      f"{fc['change_pct']:+.1f}% vs last {n}" if fc["change_pct"] is not None else None, border=True,
+                      help=f"Likely range: {dashboard.fmt(fc['low_total'])} to {dashboard.fmt(fc['high_total'])}")
+        if sig.get("momentum_pct") is not None:
+            st.metric("Momentum", _trend_word(sig["momentum_pct"]), f"{sig['momentum_pct']:+.1f}%", border=True,
+                      help=f"Last 3 {period}s compared with the 3 before them")
+        if sig.get("yoy_pct") is not None:
+            st.metric("Year over year", _trend_word(sig["yoy_pct"]), f"{sig['yoy_pct']:+.1f}%", border=True,
+                      help="Last 3 months compared with the same 3 months a year earlier")
+        if sig.get("seasonal_peak"):
+            st.metric("Seasonal peak", sig["seasonal_peak"], f"weakest: {sig['seasonal_low']}", delta_color="off",
+                      delta_arrow="off", border=True, help="Calendar month with the highest average, from past years")
+        conc = sig.get("concentration")
+        if conc:
+            st.metric(f"Largest {sig['dimension']}", conc["top_group"], f"{conc['top_share_pct']:.0f}% of total",
+                      delta_color="off", delta_arrow="off", border=True, help="High dependence on one group is a risk")
+
+    # ---- Charts ----
+    if fc or sig.get("segments"):
+        left, right = st.columns([1.6, 1])
+        with left:
+            with st.container(border=True, key="card_outlook_forecast"):
+                if fc:
+                    st.markdown(f"**{measure.capitalize()} forecast: next {fc['periods']} {fc['period']}s**")
+                    st.plotly_chart(_forecast_figure(sig), key="outlook_forecast_chart", config={"displaylogo": False})
+                    st.caption(f"Shaded area: likely range ({dashboard.fmt(fc['low_total'])} to {dashboard.fmt(fc['high_total'])} in total). "
+                               "Forecasts follow past patterns and can't know about future events.")
+                else:
+                    st.caption("Not enough history to forecast.")
+        with right:
+            with st.container(border=True, key="card_outlook_segments"):
+                if sig.get("segments"):
+                    st.markdown(f"**Who's speeding up or slowing down** · by {sig['dimension']}")
+                    st.plotly_chart(_momentum_figure(sig), key="outlook_momentum_chart", config={"displaylogo": False})
+                    st.caption(f"Last 3 {period}s vs the 3 before. Green = growing, red = shrinking.")
+                else:
+                    st.caption("No category column to compare groups.")
+
+    for caveat in sig.get("caveats", []):
+        st.caption(f":material/info: {caveat}")
+
+    # ---- AI brief (structured output) ----
+    with st.container(border=True, key="card_outlook_brief"):
+        head, btn = st.columns([3, 1.2], vertical_alignment="center")
+        head.markdown(":material/auto_awesome: **AI outlook brief**")
+        if not API_KEY:
+            st.caption("Add a GEMINI_API_KEY to your .env file to get the AI brief.")
+        elif measure is None:
+            st.caption("Upload data with a numeric amount column to get an outlook.")
+        else:
+            label = "Regenerate" if "outlook_brief" in st.session_state else "Generate outlook"
+            if btn.button(label, type="primary", icon=":material/auto_awesome:", width="stretch"):
+                with st.status(":shimmer[Writing your outlook]", type="compact") as status:
+                    try:
+                        brief = outlook.generate_brief(get_llm_client(), sig)
+                        st.session_state["outlook_brief"] = brief
+                        st.session_state["insights_text"] = outlook.brief_to_markdown(brief)
+                        status.update(label="Outlook ready", state="complete")
+                    except llm.AllModelsBusy as exc:
+                        status.update(label="AI limit reached for now", state="error")
+                        st.warning(str(exc), icon=":material/hourglass_top:")
+                    except Exception as exc:  # noqa: BLE001
+                        status.update(label="Couldn't write the outlook", state="error")
+                        st.error(f"Something went wrong: {exc}", icon=":material/error:")
+
+            brief = st.session_state.get("outlook_brief")
+            if brief is None:
+                st.caption("Get a short brief: what's likely next, opportunities, risks and 3 recommended actions.")
+            else:
+                st.markdown(f"#### {brief.headline}")
+                conf_color = {"high": "green", "medium": "orange", "low": "red"}[brief.confidence]
+                st.badge(f"{brief.confidence.capitalize()} confidence", icon=":material/verified:", color=conf_color)
+                st.caption(brief.confidence_reason)
+                cols = st.columns(3)
+                sections = (
+                    ("What's likely next", ":material/trending_up:", brief.outlook, "next"),
+                    ("Opportunities", ":material/rocket_launch:", brief.opportunities, "opps"),
+                    ("Risks to watch", ":material/warning:", brief.risks, "risks"),
+                )
+                for col, (title, icon, items, key) in zip(cols, sections):
+                    with col:
+                        with st.container(border=True, key=f"card_brief_{key}", height="stretch"):
+                            st.markdown(f"{icon} **{title}**")
+                            st.markdown("\n".join(f"- {x}" for x in items))
+                st.markdown(":material/task_alt: **Recommended actions**")
+                impact_color = {"high": "red", "medium": "orange", "low": "gray"}
+                for i, action in enumerate(brief.actions, 1):
+                    with st.container(border=True, key=f"card_action_{i}"):
+                        st.markdown(f"**{i}. {action.title}** :{impact_color[action.impact]}-badge[{action.impact} impact]")
+                        st.caption(action.why)
+
+    # ---- Classic dataset summary (kept, now secondary) ----
+    with st.expander("Dataset health summary: what's in the data and its quality issues", icon=":material/fact_check:"):
+        if not API_KEY:
+            st.caption("Add a GEMINI_API_KEY to your .env file to enable this.")
+        else:
+            if st.button("Generate summary", icon=":material/description:", key="dataset_summary_btn"):
+                try:
+                    with st.spinner("Summarizing..."):
+                        st.session_state["dataset_summary_text"] = insights.generate_insights(
+                            get_llm_client(), df, col_types, quality_issues=compute_quality_report(df, col_types))
+                except llm.AllModelsBusy as exc:
+                    st.warning(str(exc), icon=":material/hourglass_top:")
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Couldn't generate the summary: {exc}", icon=":material/error:")
+            if st.session_state.get("dataset_summary_text"):
+                st.markdown(st.session_state["dataset_summary_text"])
 
 
 CHAT_SUGGESTIONS = {

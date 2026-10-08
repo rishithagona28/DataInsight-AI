@@ -49,11 +49,12 @@ def _retry_seconds(err: Exception, default: float) -> float:
 
 
 def complete(client, *, messages: list, tools: list | None = None, max_tokens: int = 1500,
-             fast: bool = True) -> tuple:
+             fast: bool = True, response_format: dict | None = None) -> tuple:
     """Chat completion with fallback. Returns (response, model_name_used).
 
     fast=True asks reasoning models to think briefly (much quicker answers
     for everyday questions); providers that don't support that just ignore it.
+    response_format: e.g. a JSON schema, to get structured output back.
     """
     now = time.time()
     tried = []
@@ -63,6 +64,8 @@ def complete(client, *, messages: list, tools: list | None = None, max_tokens: i
         kwargs = dict(model=model, messages=messages, max_tokens=max_tokens)
         if tools:
             kwargs["tools"] = tools
+        if response_format:
+            kwargs["response_format"] = response_format
         if fast:
             kwargs["reasoning_effort"] = "low"
         tried.append(model)
