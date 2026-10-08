@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from modules import charts, chat_agent, cleaning, eda, insights, llm, loader, predict, report
+from modules import charts, chat_agent, cleaning, dashboard, eda, insights, llm, loader, predict, report, style
 
 load_dotenv()
 
@@ -223,6 +223,15 @@ def render_overview(df: pd.DataFrame, col_types: dict) -> None:
 
 
 def render_dashboard(df: pd.DataFrame, col_types: dict) -> None:
+    """Client-ready dashboard (modules/dashboard.py), with the detailed
+    analyst charts available underneath on demand."""
+    dashboard.render(df, col_types)
+    st.space("medium")
+    if st.toggle("Show detailed analysis charts (correlations, distributions, outliers)", key="dash_show_detail"):
+        render_detailed_charts(df, col_types)
+
+
+def render_detailed_charts(df: pd.DataFrame, col_types: dict) -> None:
     numeric = col_types["numeric"]
     categorical = col_types["categorical"]
     datetime_cols = col_types["datetime"]
@@ -675,22 +684,23 @@ def render_report(df: pd.DataFrame, col_types: dict, dataset_name: str) -> None:
 def render_landing() -> None:
     st.info("Upload a CSV in the sidebar to get started.", icon=":material/upload_file:")
     with st.container(horizontal=True):
-        with st.container(border=True):
+        with st.container(border=True, key="card_landing_0"):
             st.markdown(":material/cleaning_services: **Data quality & cleaning**")
             st.caption("Missing values, duplicates, and inconsistent text — detected and explained, applied only with your approval.")
-        with st.container(border=True):
+        with st.container(border=True, key="card_landing_1"):
             st.markdown(":material/dashboard: **Interactive dashboard**")
             st.caption("Filters, drill-down, and auto-picked charts that stay fast even on large files.")
-        with st.container(border=True):
+        with st.container(border=True, key="card_landing_2"):
             st.markdown(":material/model_training: **Predictions & forecasts**")
             st.caption("A one-click model for any column, or forecast a metric 1, 3, 6 months — or a custom horizon — ahead.")
-        with st.container(border=True):
+        with st.container(border=True, key="card_landing_3"):
             st.markdown(":material/chat: **Chat with your data**")
             st.caption("Ask in plain language — answers, charts, and forecasts are computed, not guessed.")
 
 
 def main() -> None:
     st.html(RUNNING_INDICATOR_CSS)
+    style.inject()
 
     with st.sidebar:
         st.markdown("## :material/analytics: Ana")
@@ -703,8 +713,11 @@ def main() -> None:
             st.badge("AI features need a key", icon=":material/key_off:", color="orange")
             st.caption("Add `GEMINI_API_KEY` to your `.env` file to unlock AI insights, chat, and forecasting explanations.")
 
-    st.title("Gemini-powered AI data analyst", icon=":material/analytics:")
-    st.caption("Upload a CSV to get an automatic dashboard, AI insights, quick predictions, and a chat agent for your data.")
+    style.hero(
+        "Ana · your AI data analyst",
+        "Upload any CSV and get a client-ready dashboard, forecasts, plain-English insights and a chat assistant that answers your questions.",
+        ["Any CSV", "Auto-cleaning", "Interactive dashboard", "Forecasts", "Ask in plain English"],
+    )
 
     if uploaded_file is None:
         render_landing()
