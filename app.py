@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from modules import charts, chat_agent, cleaning, eda, insights, predict, report
+from modules import charts, chat_agent, cleaning, eda, insights, loader, predict, report
 
 load_dotenv()
 
@@ -66,8 +66,10 @@ def get_llm_client():
 
 
 @st.cache_data(show_spinner=False)
-def load_csv(file) -> pd.DataFrame:
-    return pd.read_csv(file)
+def load_csv(data: bytes) -> tuple[pd.DataFrame, list[str]]:
+    """Cached on the file's bytes. See modules/loader.py for how messy files
+    (Excel encodings, semicolons, title rows, bad rows, "₹ 1,200") are handled."""
+    return loader.load_csv_bytes(data)
 
 
 @st.cache_data(show_spinner=False)
@@ -653,7 +655,7 @@ def main() -> None:
     with st.sidebar:
         st.markdown("## :material/analytics: Ana")
         st.caption("Your AI-powered data analyst")
-        uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+        uploaded_file = st.file_uploader("Upload a CSV file", type=["csv", "tsv", "txt"])
         st.space("small")
         if API_KEY:
             st.badge("AI features ready", icon=":material/check_circle:", color="green")
@@ -669,13 +671,17 @@ def main() -> None:
         return
 
     try:
-        raw_df = load_csv(uploaded_file)
+        raw_df, load_notes = load_csv(uploaded_file.getvalue())
+    except loader.CSVLoadError as exc:
+        st.error(f"Couldn't read **{uploaded_file.name}**: {exc}", icon=":material/error:")
+        return
     except Exception as exc:
-        st.error(f"Couldn't read that file as a CSV: {exc}", icon=":material/error:")
+        st.error(f"Couldn't read **{uploaded_file.name}** as a table: {exc}", icon=":material/error:")
         return
-    if raw_df.shape[0] == 0 or raw_df.shape[1] == 0:
-        st.error("That CSV has no usable rows/columns.", icon=":material/error:")
-        return
+    if load_notes:
+        with st.expander(f"Loaded **{uploaded_file.name}** with {len(load_notes)} automatic adjustment(s)", icon=":material/auto_fix_high:"):
+            for note in load_notes:
+                st.markdown(f"- {note}")
 
     typed_df, _ = prepare_dataframe(raw_df)
 
