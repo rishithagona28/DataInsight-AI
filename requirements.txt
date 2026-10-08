@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+plotly
+openai
+python-dotenv
+scikit-learn>=1.4
+statsmodels>=0.14
