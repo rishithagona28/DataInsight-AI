@@ -1,5 +1,5 @@
 """
-Auto-dashboard chart builders for Ana, using Plotly.
+Auto-dashboard chart builders for DataInsight AI, using Plotly.
 
 Color and form choices follow a fixed-order categorical palette, a single
 blue sequential ramp for magnitude, and a blue<->red diverging pair with a

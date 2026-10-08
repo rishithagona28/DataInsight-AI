@@ -1,5 +1,5 @@
 """
-Automated HTML report for Ana: assembles whatever has already been
+Automated HTML report for DataInsight AI: assembles whatever has already been
 computed this session (profiling, cleaning log, AI insights, model
 comparison, a few key charts) into one self-contained, downloadable HTML
 file. Nothing here recomputes analysis — it only formats results that
@@ -103,7 +103,7 @@ def build_report_html(
 
     body = f"""
 <div class="wrap">
-  <h1>AI Data Analyst report</h1>
+  <h1>DataInsight AI report</h1>
   <p class="muted">{html.escape(dataset_name)} · generated {generated_at}</p>
 
   <h2>Dataset overview</h2>
@@ -142,4 +142,4 @@ def build_report_html(
   </ul>
 </div>
 """
-    return f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>AI Data Analyst report</title>{_STYLE}</head><body>{body}</body></html>"
+    return f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>DataInsight AI report</title>{_STYLE}</head><body>{body}</body></html>"

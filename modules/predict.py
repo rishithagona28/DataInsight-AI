@@ -1,5 +1,5 @@
 """
-Prediction module for Ana: forecast a time series forward, or train a
+Prediction module for DataInsight AI: forecast a time series forward, or train a
 quick model to predict any column from the others.
 
 Everything here is intentionally simple (a handful of sklearn/statsmodels

@@ -1,5 +1,5 @@
 """
-Ana — AI Data Analyst
+DataInsight AI: your AI data analyst
 
 Upload a CSV, get an automatic EDA + dashboard, AI-generated insights,
 quick predictions, and a chat agent that answers questions about your
@@ -21,7 +21,7 @@ from modules import charts, chat_agent, cleaning, dashboard, eda, insights, llm,
 
 load_dotenv()
 
-st.set_page_config(page_title= "AI Data Analyst", page_icon="📊", layout="wide")
+st.set_page_config(page_title="DataInsight AI", page_icon=":material/insights:", layout="wide")
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 # Gemini's OpenAI-compatible endpoint — talking to it through the `openai`
@@ -857,7 +857,7 @@ def main() -> None:
     style.inject()
 
     with st.sidebar:
-        st.markdown("## :material/analytics: Ana")
+        st.markdown("## :material/insights: DataInsight AI")
         st.caption("Your AI-powered data analyst")
         uploaded_file = st.file_uploader("Upload a CSV file", type=["csv", "tsv", "txt"])
         st.space("small")
@@ -868,7 +868,7 @@ def main() -> None:
             st.caption("Add `GEMINI_API_KEY` to your `.env` file to unlock AI insights, chat, and forecasting explanations.")
 
     style.hero(
-        "Ana · your AI data analyst",
+        "DataInsight AI",
         "Upload any CSV and get a client-ready dashboard, forecasts, plain-English insights and a chat assistant that answers your questions.",
         ["Any CSV", "Auto-cleaning", "Interactive dashboard", "Forecasts", "Ask in plain English"],
     )

@@ -1,5 +1,5 @@
 """
-One place for every LLM call in Ana, with automatic model fallback.
+One place for every LLM call in DataInsight AI, with automatic model fallback.
 
 Why this exists: Gemini's free tier limits requests *per model, per day*
 (the default model allowed only 20 requests/day, i.e. ~5-8 chat questions).
@@ -91,7 +91,7 @@ def complete(client, *, messages: list, tools: list | None = None, max_tokens: i
     when = f"in about {minutes} minute(s)" if minutes < 90 else f"in about {round(minutes / 60)} hour(s)"
     raise AllModelsBusy(
         "All free AI models have reached their usage limit for now. "
-        f"Ana's AI features will work again {when}. "
+        f"The AI features will work again {when}. "
         "(To remove this limit, enable billing on your Gemini API key or add a second provider in .env.)"
     )
 

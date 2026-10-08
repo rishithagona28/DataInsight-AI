@@ -1,5 +1,5 @@
 """
-Ana's visual design layer: custom CSS on top of the Streamlit theme
+DataInsight AI's visual design layer: custom CSS on top of the Streamlit theme
 (.streamlit/config.toml keeps the base colors and fonts).
 
 Only stable hooks are targeted: data-testid attributes and the `st-key-<key>`

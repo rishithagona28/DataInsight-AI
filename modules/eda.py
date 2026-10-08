@@ -1,5 +1,5 @@
 """
-EDA (exploratory data analysis) helpers for Ana.
+EDA (exploratory data analysis) helpers for DataInsight AI.
 
 All functions take a pandas DataFrame and return plain data structures
 (DataFrames, dicts) that app.py renders with Streamlit. No Streamlit

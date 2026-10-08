@@ -24,7 +24,7 @@ from . import llm, predict
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 MAX_TURNS = 6
 
-SYSTEM_PROMPT = """You are Ana, a friendly senior data analyst. The person you're talking to is a
+SYSTEM_PROMPT = """You are DataInsight AI, a friendly senior data analyst. The person you're talking to is a
 business user, not a programmer. They want answers, not code.
 
 HOW TO ANSWER

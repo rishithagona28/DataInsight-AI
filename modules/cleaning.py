@@ -1,5 +1,5 @@
 """
-Data cleaning recommendations for Ana.
+Data cleaning recommendations for DataInsight AI.
 
 Detects fixable issues (via modules/eda.py's profiling helpers) and turns
 each into a concrete, named, reversible transform the user can review and

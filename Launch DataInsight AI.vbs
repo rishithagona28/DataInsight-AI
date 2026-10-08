@@ -1,5 +1,5 @@
-' Starts Ana in the background (no command window) and opens it in your browser.
-' If Ana is already running, it just opens the page.
+' Starts DataInsight AI in the background (no command window) and opens it in your browser.
+' If DataInsight AI is already running, it just opens the page.
 Option Explicit
 Const URL = "http://localhost:8501/"
 Dim sh, fso, appDir, py, q, i
@@ -33,7 +33,7 @@ End Sub
 If Not IsRunning() Then
     FreePort  ' clear any leftover process still holding the port
     If Not fso.FileExists(py) Then
-        MsgBox "Can't find Python at:" & vbCrLf & py, vbExclamation, "Ana"
+        MsgBox "Can't find Python at:" & vbCrLf & py, vbExclamation, "DataInsight AI"
         WScript.Quit 1
     End If
     sh.CurrentDirectory = appDir
@@ -44,7 +44,7 @@ If Not IsRunning() Then
         If IsRunning() Then Exit For
     Next
     If Not IsRunning() Then
-        MsgBox "Ana didn't start. Details are in run_log.txt in:" & vbCrLf & appDir, vbExclamation, "Ana"
+        MsgBox "DataInsight AI didn't start. Details are in run_log.txt in:" & vbCrLf & appDir, vbExclamation, "DataInsight AI"
         WScript.Quit 1
     End If
 End If

@@ -1,4 +1,4 @@
-# Ana — AI Data Analyst
+# DataInsight AI
 
 An AI-powered data analyst platform: upload a dataset and it profiles,
 cleans, visualizes, models, and explains it — the routine work a data
