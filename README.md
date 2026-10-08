@@ -58,6 +58,25 @@ Every total, forecast and percentage is computed with pandas, statsmodels and sc
 | **Time-series forecasting** | `modules/predict.py` | Holt's exponential smoothing (damped trend, seasonality when there's enough history) on properly aggregated periods, with incomplete edge periods removed and an uncertainty band. |
 | **Classical ML** | `modules/predict.py` | Multi-model comparison, cross-validation, task-appropriate metrics, permutation importance. |
 
+## AI fundamentals: what's used, and where the rest fits
+
+| Concept | Status | In this project |
+|---|---|---|
+| Large language models (LLMs) | ✅ Used | Gemini powers the chat assistant, the outlook brief and the dataset summary |
+| AI agents & tool calling | ✅ Used | The chat agent picks and runs calculation and forecast tools in a loop |
+| Prompt & context engineering | ✅ Used | Versioned system prompts; exact dataset facts sent as grounding context |
+| Structured outputs | ✅ Used | JSON schema + Pydantic validation for the outlook brief |
+| Conversation memory | ✅ Used | Chat history is kept across turns, so follow-up questions work |
+| Guardrails & responsible AI | ✅ Used | AST-checked sandbox for model-written code; raw rows never sent to the LLM; "never invent numbers" |
+| LLM reliability | ✅ Used | Multi-model fallback on rate limits, timeouts and errors |
+| Machine learning & forecasting | ✅ Used | scikit-learn model comparison, cross-validation, Holt forecasting |
+| RAG (embeddings + vector search) | 🔜 Planned | Uploaded PDFs/reports would be chunked, embedded into a vector store (e.g. Chroma) and retrieved with citations next to the data |
+| LangChain / LangGraph | 🔜 Planned | LangChain for the document pipeline; LangGraph to route each question to data analysis, document search or forecasting |
+| LLM evaluation | 🔜 Planned | A test set scored for correctness and faithfulness (LLM-as-a-judge) |
+| Observability | 🔜 Planned | Per-question token, cost and latency tracing |
+
+The LLM calls go through one gateway (`modules/llm.py`), and the data tools are plain Python functions. So adding a retrieval tool or moving the agent loop to LangGraph changes the orchestration, not the analysis code.
+
 ## How it works
 
 ```mermaid
